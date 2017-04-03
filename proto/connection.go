@@ -4,7 +4,14 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"net"
 )
+
+// Connection buffer
+
+func NewConnection() Connection {
+	return Connection{[]byte{}, []byte{}}
+}
 
 type Connection struct {
 	sent     []byte
@@ -85,15 +92,141 @@ func (c Connection) writeASCII(str string) {
 	c.writeUTF(str)
 }
 
-func (c Connection) readShort() int {
+func (c Connection) readShort() int16 {
 	var i int16
 	_ = binary.Read(bytes.NewReader(c.read(2)), binary.LittleEndian, &i)
-	return int(i)
+	return i
 }
 
-func (c Connection) writeShort(i int) {
-	data := make([]byte, 2)
-	x := int16(i)
-	binary.Write(bytes.NewBuffer(data), binary.LittleEndian, &x)
+func (c Connection) writeShort(i int16) {
+	data := bytes.NewBuffer(make([]byte, 2, 2))
+	binary.Write(data, binary.LittleEndian, i)
+	c.write(data.Bytes())
+}
+
+func (c Connection) readUshort() uint16 {
+	var i uint16
+	_ = binary.Read(bytes.NewReader(c.read(2)), binary.LittleEndian, &i)
+	return i
+}
+
+func (c Connection) writeUshort(i uint16) {
+	data := bytes.NewBuffer(make([]byte, 2, 2))
+	binary.Write(data, binary.LittleEndian, i)
+	c.write(data.Bytes())
+}
+
+func (c Connection) readInt() int32 {
+	var i int32
+	_ = binary.Read(bytes.NewReader(c.read(4)), binary.LittleEndian, &i)
+	return i
+}
+
+func (c Connection) writeInt(i int32) {
+	data := bytes.NewBuffer(make([]byte, 4, 4))
+	binary.Write(data, binary.LittleEndian, i)
+	c.write(data.Bytes())
+}
+
+func (c Connection) readUint() uint32 {
+	var i uint32
+	_ = binary.Read(bytes.NewReader(c.read(4)), binary.LittleEndian, &i)
+	return i
+}
+
+func (c Connection) writeUint(i uint32) {
+	data := bytes.NewBuffer(make([]byte, 4, 4))
+	binary.Write(data, binary.LittleEndian, i)
+	c.write(data.Bytes())
+}
+
+func (c Connection) readLong() int64 {
+	var i int64
+	_ = binary.Read(bytes.NewReader(c.read(8)), binary.LittleEndian, &i)
+	return i
+}
+
+func (c Connection) writeLong(i int64) {
+	data := bytes.NewBuffer(make([]byte, 8, 8))
+	binary.Write(data, binary.LittleEndian, i)
+	c.write(data.Bytes())
+}
+
+func (c Connection) readBuffer() (Connection, error) {
+	length, err := c.readVarint()
+	var result Connection
+	if err != nil {
+		return result, err
+	}
+	result.receive(result.read(length))
+	return result, nil
+}
+
+func (c Connection) writeBuffer(buffer Connection) {
+	data := buffer.flush()
+	c.writeVarint(len(data))
 	c.write(data)
+}
+
+// TCP
+
+func NewTCPSocketConnection(addr string) (*TCPSocketConnection, error) {
+	sock, err := net.Dial("tcp", addr)
+	if err != nil {
+		return nil, err
+	}
+	return &TCPSocketConnection{NewConnection(), addr, sock}, nil
+}
+
+type TCPSocketConnection struct {
+	conn Connection
+	addr string
+	sock net.Conn
+}
+
+//TODO: Implement timeout
+func (t TCPSocketConnection) read(length int) ([]byte, error) {
+	var result []byte
+	for len(result) < length {
+		chunk := make([]byte, length-len(result))
+		_, err := t.sock.Read(chunk)
+		if err != nil {
+			return result, err
+		}
+		if len(chunk) == 0 {
+			return result, fmt.Errorf("server did not respond with any information")
+		}
+		result = append(result, chunk...)
+	}
+	return result, nil
+}
+
+func (t TCPSocketConnection) write(data []byte) {
+	t.sock.Write(data)
+}
+
+// UDP
+
+func NewUDPSocketConnection(addr string) (*UDPSocketConnection, error) {
+	sock, err := net.Dial("udp", addr)
+	if err != nil {
+		return nil, err
+	}
+	return &UDPSocketConnection{NewConnection(), addr, sock}, nil
+}
+
+type UDPSocketConnection struct {
+	conn Connection
+	addr string
+	sock net.Conn
+}
+
+func (u UDPSocketConnection) read(length int) []byte {
+	var result []byte
+	u.sock.Read(result)
+	return result
+}
+
+func (u UDPSocketConnection) write(data []byte) {
+	u.sock.Write(data)
 }
