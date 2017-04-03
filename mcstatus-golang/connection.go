@@ -1,4 +1,4 @@
-package connection
+package mcstatus
 
 import (
 	"bytes"
