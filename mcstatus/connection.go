@@ -226,6 +226,32 @@ func (t TCPSocketConnection) Read(length int) ([]byte, error) {
 	return result, nil
 }
 
-func (t TCPSocketConnection) write(data []byte) {
+func (t TCPSocketConnection) Write(data []byte) {
 	t.sock.Write(data)
+}
+
+// UDP
+
+func NewUDPSocketConnection(addr string) (*UDPSocketConnection, error) {
+	sock, err := net.Dial("udp", addr)
+	if err != nil {
+		return nil, err
+	}
+	return &UDPSocketConnection{NewConnection(), addr, sock}, nil
+}
+
+type UDPSocketConnection struct {
+	conn Connection
+	addr string
+	sock net.Conn
+}
+
+func (u UDPSocketConnection) Read(length int) []byte {
+	var result []byte
+	u.sock.Read(result)
+	return result
+}
+
+func (u UDPSocketConnection) Write(data []byte) {
+	u.sock.Write(data)
 }
