@@ -42,10 +42,10 @@ func (c Connection) Flush() []byte {
 	return result
 }
 
-func (c Connection) ReadVarint() (int, error) {
+func (c Connection) ReadVarInt() (int, error) {
 	result := 0
 	for i := 0; i < 5; i++ {
-		part := c.read(1)[0]
+		part := c.Read(1)[0]
 		result |= (int(part) & 0x7F) << 7 * i
 		if part&0x08 == 0 {
 			return result, nil
@@ -54,23 +54,23 @@ func (c Connection) ReadVarint() (int, error) {
 	return 0, fmt.Errorf("server sent a varint that was too big")
 }
 
-func (c Connection) WriteVarint(value int) error {
+func (c Connection) WriteVarInt(value int) error {
 	remaining := value
 	for i := 0; i < 5; i++ {
 		if remaining & ^0x7F == 0 {
-			c.write([]byte{byte(remaining)})
+			c.Write([]byte{byte(remaining)})
 			return nil
 		}
-		c.write([]byte{byte(remaining&0x7F | 0x80)})
+		c.Write([]byte{byte(remaining&0x7F | 0x80)})
 		remaining >>= 7
 	}
 	return fmt.Errorf("the value %d is too big to send in a varint", value)
 }
 
-func (c Connection) ReadVarlong() (int, error) {
+func (c Connection) ReadVarLong() (int, error) {
 	result := 0
 	for i := 0; i < 10; i++ {
-		part := c.read(1)[0]
+		part := c.Read(1)[0]
 		result |= (int(part) & 0x7F) << 7 * i
 		if part&0x08 == 0 {
 			return result, nil
@@ -79,14 +79,14 @@ func (c Connection) ReadVarlong() (int, error) {
 	return 0, fmt.Errorf("server sent a varlong that was too big")
 }
 
-func (c Connection) WriteVarlong(value int) error {
+func (c Connection) WriteVarLong(value int) error {
 	remaining := value
 	for i := 0; i < 10; i++ {
 		if remaining & ^0x7F == 0 {
-			c.write([]byte{byte(remaining)})
+			c.Write([]byte{byte(remaining)})
 			return nil
 		}
-		c.write([]byte{byte(remaining&0x7F | 0x80)})
+		c.Write([]byte{byte(remaining&0x7F | 0x80)})
 		remaining >>= 7
 	}
 	return fmt.Errorf("the value %d is too big to send in a varlong", value)
@@ -94,103 +94,103 @@ func (c Connection) WriteVarlong(value int) error {
 
 //TODO: Deal with invalid Unicode strings?
 func (c Connection) ReadUTF() (string, error) {
-	length, err := c.readVarint()
+	length, err := c.ReadVarInt()
 	if err != nil {
 		return "", err
 	}
 
-	data := c.read(length)
+	data := c.Read(length)
 	return string(data), nil
 }
 
 func (c Connection) WriteUTF(str string) {
 	data := []byte(str)
-	c.writeVarint(len(data))
-	c.write(data)
+	c.WriteVarInt(len(data))
+	c.Write(data)
 }
 
 func (c Connection) ReadASCII() (string, error) {
-	return c.readUTF()
+	return c.ReadUTF()
 }
 
 func (c Connection) WriteASCII(str string) {
-	c.writeUTF(str)
+	c.WriteUTF(str)
 }
 
 func (c Connection) ReadShort() int16 {
 	var i int16
-	_ = binary.Read(bytes.NewReader(c.read(2)), binary.LittleEndian, &i)
+	_ = binary.Read(bytes.NewReader(c.Read(2)), binary.LittleEndian, &i)
 	return i
 }
 
 func (c Connection) WriteShort(i int16) {
 	data := bytes.NewBuffer(make([]byte, 2, 2))
 	binary.Write(data, binary.LittleEndian, i)
-	c.write(data.Bytes())
+	c.Write(data.Bytes())
 }
 
 func (c Connection) ReadUshort() uint16 {
 	var i uint16
-	_ = binary.Read(bytes.NewReader(c.read(2)), binary.LittleEndian, &i)
+	_ = binary.Read(bytes.NewReader(c.Read(2)), binary.LittleEndian, &i)
 	return i
 }
 
 func (c Connection) WriteUshort(i uint16) {
 	data := bytes.NewBuffer(make([]byte, 2, 2))
 	binary.Write(data, binary.LittleEndian, i)
-	c.write(data.Bytes())
+	c.Write(data.Bytes())
 }
 
 func (c Connection) ReadInt() int32 {
 	var i int32
-	_ = binary.Read(bytes.NewReader(c.read(4)), binary.LittleEndian, &i)
+	_ = binary.Read(bytes.NewReader(c.Read(4)), binary.LittleEndian, &i)
 	return i
 }
 
 func (c Connection) WriteInt(i int32) {
 	data := bytes.NewBuffer(make([]byte, 4, 4))
 	binary.Write(data, binary.LittleEndian, i)
-	c.write(data.Bytes())
+	c.Write(data.Bytes())
 }
 
 func (c Connection) ReadUint() uint32 {
 	var i uint32
-	_ = binary.Read(bytes.NewReader(c.read(4)), binary.LittleEndian, &i)
+	_ = binary.Read(bytes.NewReader(c.Read(4)), binary.LittleEndian, &i)
 	return i
 }
 
 func (c Connection) WriteUint(i uint32) {
 	data := bytes.NewBuffer(make([]byte, 4, 4))
 	binary.Write(data, binary.LittleEndian, i)
-	c.write(data.Bytes())
+	c.Write(data.Bytes())
 }
 
 func (c Connection) ReadLong() int64 {
 	var i int64
-	_ = binary.Read(bytes.NewReader(c.read(8)), binary.LittleEndian, &i)
+	_ = binary.Read(bytes.NewReader(c.Read(8)), binary.LittleEndian, &i)
 	return i
 }
 
 func (c Connection) WriteLong(i int64) {
 	data := bytes.NewBuffer(make([]byte, 8, 8))
 	binary.Write(data, binary.LittleEndian, i)
-	c.write(data.Bytes())
+	c.Write(data.Bytes())
 }
 
 func (c Connection) ReadBuffer() (Connection, error) {
-	length, err := c.readVarint()
+	length, err := c.ReadVarInt()
 	var result Connection
 	if err != nil {
 		return result, err
 	}
-	result.receive(result.read(length))
+	result.Receive(result.Read(length))
 	return result, nil
 }
 
 func (c Connection) WriteBuffer(buffer Connection) {
-	data := buffer.flush()
-	c.writeVarint(len(data))
-	c.write(data)
+	data := buffer.Flush()
+	c.WriteVarInt(len(data))
+	c.Write(data)
 }
 
 // TCP
@@ -210,7 +210,7 @@ type TCPSocketConnection struct {
 }
 
 //TODO: Implement timeout
-func (t TCPSocketConnection) read(length int) ([]byte, error) {
+func (t TCPSocketConnection) Read(length int) ([]byte, error) {
 	var result []byte
 	for len(result) < length {
 		chunk := make([]byte, length-len(result))

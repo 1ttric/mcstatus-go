@@ -11,5 +11,5 @@ func main() {
 	i, _ := binary.Varint([]byte{0xff, 0x01})
 	fmt.Println(i)
 	c := mcstatus.NewConnection()
-	c.test()
+	c.ReadUTF()
 }
