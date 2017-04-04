@@ -67,6 +67,31 @@ func (c Connection) writeVarint(value int) error {
 	return fmt.Errorf("the value %d is too big to send in a varint", value)
 }
 
+func (c Connection) readVarlong() (int, error) {
+	result := 0
+	for i := 0; i < 10; i++ {
+		part := c.read(1)[0]
+		result |= (int(part) & 0x7F) << 7 * i
+		if part&0x08 == 0 {
+			return result, nil
+		}
+	}
+	return 0, fmt.Errorf("server sent a varlong that was too big")
+}
+
+func (c Connection) writeVarlong(value int) error {
+	remaining := value
+	for i := 0; i < 10; i++ {
+		if remaining & ^0x7F == 0 {
+			c.write([]byte{byte(remaining)})
+			return nil
+		}
+		c.write([]byte{byte(remaining&0x7F | 0x80)})
+		remaining >>= 7
+	}
+	return fmt.Errorf("the value %d is too big to send in a varlong", value)
+}
+
 //TODO: Deal with invalid Unicode strings?
 func (c Connection) readUTF() (string, error) {
 	length, err := c.readVarint()
@@ -200,33 +225,7 @@ func (t TCPSocketConnection) read(length int) ([]byte, error) {
 	}
 	return result, nil
 }
-
+Connection
 func (t TCPSocketConnection) write(data []byte) {
 	t.sock.Write(data)
-}
-
-// UDP
-
-func NewUDPSocketConnection(addr string) (*UDPSocketConnection, error) {
-	sock, err := net.Dial("udp", addr)
-	if err != nil {
-		return nil, err
-	}
-	return &UDPSocketConnection{NewConnection(), addr, sock}, nil
-}
-
-type UDPSocketConnection struct {
-	conn Connection
-	addr string
-	sock net.Conn
-}
-
-func (u UDPSocketConnection) read(length int) []byte {
-	var result []byte
-	u.sock.Read(result)
-	return result
-}
-
-func (u UDPSocketConnection) write(data []byte) {
-	u.sock.Write(data)
 }
