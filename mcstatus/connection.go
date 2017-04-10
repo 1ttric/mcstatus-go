@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"math"
 	"net"
+	"unicode/utf8"
 )
 
 // Connection buffer
@@ -18,43 +20,51 @@ type Connection struct {
 	received []byte
 }
 
-func (c Connection) Read(length int) []byte {
-	result := c.received[:length]
-	c.received = c.received[length:]
-	return result
+func (c *Connection) Read(length int) ([]byte, error) {
+	end := int(math.Min(float64(length), float64(len(c.received))))
+	result := c.received[:end]
+	c.received = c.received[end:]
+	return result, nil
 }
 
-func (c Connection) Write(data []byte) {
+func (c *Connection) Write(data []byte) {
 	c.sent = append(c.sent, data...)
 }
 
-func (c Connection) Receive(data []byte) {
+func (c *Connection) Receive(data []byte) {
 	c.received = append(c.received, data...)
 }
 
-func (c Connection) Remaining() int {
+func (c *Connection) Remaining() int {
 	return len(c.received)
 }
 
-func (c Connection) Flush() []byte {
+func (c *Connection) Flush() []byte {
 	result := c.sent
 	c.sent = []byte{}
 	return result
 }
 
-func (c Connection) ReadVarInt() (int, error) {
+func (c *Connection) ReadVarInt() (int, error) {
 	result := 0
 	for i := 0; i < 5; i++ {
-		part := c.Read(1)[0]
-		result |= (int(part) & 0x7F) << 7 * i
-		if part&0x08 == 0 {
+		data, err := c.Read(1)
+		if err != nil {
+			return 0, err
+		}
+		if len(data) == 0 {
+			return 0, fmt.Errorf("cannot parse, incomplete data")
+		}
+		part := data[0]
+		result |= (int(part) & 0x7F) << uint(7*i)
+		if part&0x80 == 0 {
 			return result, nil
 		}
 	}
 	return 0, fmt.Errorf("server sent a varint that was too big")
 }
 
-func (c Connection) WriteVarInt(value int) error {
+func (c *Connection) WriteVarInt(value int) error {
 	remaining := value
 	for i := 0; i < 5; i++ {
 		if remaining & ^0x7F == 0 {
@@ -64,22 +74,26 @@ func (c Connection) WriteVarInt(value int) error {
 		c.Write([]byte{byte(remaining&0x7F | 0x80)})
 		remaining >>= 7
 	}
-	return fmt.Errorf("the value %d is too big to send in a varint", value)
+	return fmt.Errorf("value is too big to send in a varint")
 }
 
-func (c Connection) ReadVarLong() (int, error) {
+func (c *Connection) ReadVarLong() (int, error) {
 	result := 0
 	for i := 0; i < 10; i++ {
-		part := c.Read(1)[0]
-		result |= (int(part) & 0x7F) << 7 * i
-		if part&0x08 == 0 {
+		data, err := c.Read(1)
+		if err != nil {
+			return 0, err
+		}
+		part := data[0]
+		result |= (int(part) & 0x7F) << uint(7*i)
+		if part&0x80 == 0 {
 			return result, nil
 		}
 	}
 	return 0, fmt.Errorf("server sent a varlong that was too big")
 }
 
-func (c Connection) WriteVarLong(value int) error {
+func (c *Connection) WriteVarLong(value int) error {
 	remaining := value
 	for i := 0; i < 10; i++ {
 		if remaining & ^0x7F == 0 {
@@ -93,101 +107,181 @@ func (c Connection) WriteVarLong(value int) error {
 }
 
 //TODO: Deal with invalid Unicode strings?
-func (c Connection) ReadUTF() (string, error) {
+func (c *Connection) ReadUTF() (string, error) {
 	length, err := c.ReadVarInt()
 	if err != nil {
 		return "", err
 	}
 
-	data := c.Read(length)
-	return string(data), nil
+	data, err := c.Read(length)
+	if err != nil {
+		return "", err
+	}
+	str := ""
+	for len(data) > 0 {
+		char, size := utf8.DecodeRune(data)
+		data = data[size:]
+		str = str + string(char)
+	}
+	return str, nil
 }
 
-func (c Connection) WriteUTF(str string) {
+func (c *Connection) WriteUTF(str string) {
 	data := []byte(str)
 	c.WriteVarInt(len(data))
 	c.Write(data)
 }
 
-func (c Connection) ReadASCII() (string, error) {
-	return c.ReadUTF()
-}
-
-func (c Connection) WriteASCII(str string) {
-	c.WriteUTF(str)
-}
-
-func (c Connection) ReadShort() int16 {
-	var i int16
-	_ = binary.Read(bytes.NewReader(c.Read(2)), binary.LittleEndian, &i)
-	return i
-}
-
-func (c Connection) WriteShort(i int16) {
-	data := bytes.NewBuffer(make([]byte, 2, 2))
-	binary.Write(data, binary.LittleEndian, i)
-	c.Write(data.Bytes())
-}
-
-func (c Connection) ReadUshort() uint16 {
-	var i uint16
-	_ = binary.Read(bytes.NewReader(c.Read(2)), binary.LittleEndian, &i)
-	return i
-}
-
-func (c Connection) WriteUshort(i uint16) {
-	data := bytes.NewBuffer(make([]byte, 2, 2))
-	binary.Write(data, binary.LittleEndian, i)
-	c.Write(data.Bytes())
-}
-
-func (c Connection) ReadInt() int32 {
-	var i int32
-	_ = binary.Read(bytes.NewReader(c.Read(4)), binary.LittleEndian, &i)
-	return i
-}
-
-func (c Connection) WriteInt(i int32) {
-	data := bytes.NewBuffer(make([]byte, 4, 4))
-	binary.Write(data, binary.LittleEndian, i)
-	c.Write(data.Bytes())
-}
-
-func (c Connection) ReadUint() uint32 {
-	var i uint32
-	_ = binary.Read(bytes.NewReader(c.Read(4)), binary.LittleEndian, &i)
-	return i
-}
-
-func (c Connection) WriteUint(i uint32) {
-	data := bytes.NewBuffer(make([]byte, 4, 4))
-	binary.Write(data, binary.LittleEndian, i)
-	c.Write(data.Bytes())
-}
-
-func (c Connection) ReadLong() int64 {
-	var i int64
-	_ = binary.Read(bytes.NewReader(c.Read(8)), binary.LittleEndian, &i)
-	return i
-}
-
-func (c Connection) WriteLong(i int64) {
-	data := bytes.NewBuffer(make([]byte, 8, 8))
-	binary.Write(data, binary.LittleEndian, i)
-	c.Write(data.Bytes())
-}
-
-func (c Connection) ReadBuffer() (Connection, error) {
-	length, err := c.ReadVarInt()
-	var result Connection
-	if err != nil {
-		return result, err
+func (c *Connection) ReadASCII() (string, error) {
+	result := []byte{}
+	for (len(result) == 0) || (result[len(result)-1] != byte(0)) {
+		char, err := c.Read(1)
+		if err != nil {
+			return "", err
+		}
+		if len(char) < 1 {
+			return "", fmt.Errorf("cannot parse, incomplete data")
+		}
+		result = append(result, char[0])
 	}
-	result.Receive(result.Read(length))
-	return result, nil
+	return string(result[:len(result)-1]), nil
 }
 
-func (c Connection) WriteBuffer(buffer Connection) {
+func (c *Connection) WriteASCII(str string) {
+	data := []byte(str)
+	data = append(data, byte(0x00))
+	c.Write(data)
+}
+
+func (c *Connection) ReadShort() (int16, error) {
+	var i int16
+	data, err := c.Read(2)
+	if err != nil {
+		return 0, err
+	}
+	err = binary.Read(bytes.NewReader(data), binary.BigEndian, &i)
+	if err != nil {
+		return 0, err
+	}
+	return i, nil
+}
+
+func (c *Connection) WriteShort(i int16) {
+	data := bytes.NewBuffer(make([]byte, 0, 2))
+	binary.Write(data, binary.BigEndian, i)
+	c.Write(data.Bytes())
+}
+
+func (c *Connection) ReadUshort() (uint16, error) {
+	var i uint16
+	data, err := c.Read(2)
+	if err != nil {
+		return 0, err
+	}
+	err = binary.Read(bytes.NewReader(data), binary.BigEndian, &i)
+	if err != nil {
+		return 0, err
+	}
+	return i, nil
+}
+
+func (c *Connection) WriteUshort(i uint16) {
+	data := bytes.NewBuffer(make([]byte, 0, 2))
+	binary.Write(data, binary.BigEndian, i)
+	c.Write(data.Bytes())
+}
+
+func (c *Connection) ReadInt() (int32, error) {
+	var i int32
+	data, err := c.Read(4)
+	if err != nil {
+		return 0, err
+	}
+	err = binary.Read(bytes.NewReader(data), binary.BigEndian, &i)
+	if err != nil {
+		return 0, err
+	}
+	return i, nil
+}
+
+func (c *Connection) WriteInt(i int32) {
+	data := bytes.NewBuffer(make([]byte, 0, 4))
+	binary.Write(data, binary.BigEndian, i)
+	c.Write(data.Bytes())
+}
+
+func (c *Connection) ReadUint() (uint32, error) {
+	var i uint32
+	data, err := c.Read(4)
+	if err != nil {
+		return 0, err
+	}
+	err = binary.Read(bytes.NewReader(data), binary.BigEndian, &i)
+	if err != nil {
+		return 0, err
+	}
+	return i, nil
+}
+
+func (c *Connection) WriteUint(i uint32) {
+	data := bytes.NewBuffer(make([]byte, 0, 4))
+	binary.Write(data, binary.BigEndian, i)
+	c.Write(data.Bytes())
+}
+
+func (c *Connection) ReadLong() (int64, error) {
+	var i int64
+	data, err := c.Read(8)
+	if err != nil {
+		return 0, err
+	}
+	err = binary.Read(bytes.NewReader(data), binary.BigEndian, &i)
+	if err != nil {
+		return 0, err
+	}
+	return i, nil
+}
+
+func (c *Connection) WriteLong(i int64) {
+	data := bytes.NewBuffer(make([]byte, 0, 8))
+	binary.Write(data, binary.BigEndian, i)
+	c.Write(data.Bytes())
+}
+
+func (c *Connection) ReadULong() (uint64, error) {
+	var i uint64
+	data, err := c.Read(8)
+	if err != nil {
+		return 0, err
+	}
+	err = binary.Read(bytes.NewReader(data), binary.BigEndian, &i)
+	if err != nil {
+		return 0, err
+	}
+	return i, nil
+}
+
+func (c *Connection) WriteULong(i uint64) {
+	data := bytes.NewBuffer(make([]byte, 0, 8))
+	binary.Write(data, binary.BigEndian, i)
+	c.Write(data.Bytes())
+}
+
+func (c *Connection) ReadBuffer() (*Connection, error) {
+	length, err := c.ReadVarInt()
+	if err != nil {
+		return nil, err
+	}
+	var result Connection
+	data, err := c.Read(length)
+	if err != nil {
+		return nil, err
+	}
+	result.Receive(data)
+	return &result, nil
+}
+
+func (c *Connection) WriteBuffer(buffer Connection) {
 	data := buffer.Flush()
 	c.WriteVarInt(len(data))
 	c.Write(data)
@@ -210,7 +304,7 @@ type TCPSocketConnection struct {
 }
 
 //TODO: Implement timeout
-func (t TCPSocketConnection) Read(length int) ([]byte, error) {
+func (t *TCPSocketConnection) Read(length int) ([]byte, error) {
 	var result []byte
 	for len(result) < length {
 		chunk := make([]byte, length-len(result))
@@ -226,32 +320,49 @@ func (t TCPSocketConnection) Read(length int) ([]byte, error) {
 	return result, nil
 }
 
-func (t TCPSocketConnection) Write(data []byte) {
+func (t *TCPSocketConnection) Write(data []byte) {
 	t.sock.Write(data)
 }
 
 // UDP
 
 func NewUDPSocketConnection(addr string) (*UDPSocketConnection, error) {
-	sock, err := net.Dial("udp", addr)
+	UDPAddr, err := net.ResolveUDPAddr("udp", addr)
 	if err != nil {
 		return nil, err
 	}
-	return &UDPSocketConnection{NewConnection(), addr, sock}, nil
+
+	sock, err := net.DialUDP("udp", nil, UDPAddr)
+	if err != nil {
+		return nil, err
+	}
+	return &UDPSocketConnection{NewConnection(), addr, *sock}, nil
 }
 
 type UDPSocketConnection struct {
 	conn Connection
 	addr string
-	sock net.Conn
+	sock net.UDPConn
 }
 
-func (u UDPSocketConnection) Read(length int) []byte {
-	var result []byte
-	u.sock.Read(result)
-	return result
+//TODO: Implement timeout with UDPConn.SetDeadline()
+func (u *UDPSocketConnection) Read(length int) ([]byte, error) {
+	result := make([]byte, 65535)
+	i := 0
+	var err error
+	for i == 0 {
+		i, _, err = u.sock.ReadFromUDP(result)
+		if err != nil {
+			return []byte{}, err
+		}
+	}
+	return result[:i], nil
 }
 
-func (u UDPSocketConnection) Write(data []byte) {
+func (u *UDPSocketConnection) Write(data []byte) {
 	u.sock.Write(data)
+}
+
+func (u *UDPSocketConnection) Remaining() int {
+	return 65535
 }
