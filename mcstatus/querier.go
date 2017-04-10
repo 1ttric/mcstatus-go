@@ -145,19 +145,19 @@ func newQueryResponse(raw map[string]string, players []string) (*QueryResponse, 
 }
 
 type QueryResponse struct {
-	raw      map[string]string
-	motd     string
-	worldmap string
-	players  Players
-	software Software
+	Raw      map[string]string
+	Motd     string
+	Worldmap string
+	Players  Players
+	Software Software
 }
 type Players struct {
-	online int
-	max    int
-	names  []string
+	Online int
+	Max    int
+	Names  []string
 }
 type Software struct {
-	version string
-	brand   string
-	plugins []string
+	Version string
+	Brand   string
+	Plugins []string
 }
