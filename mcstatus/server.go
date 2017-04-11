@@ -7,17 +7,18 @@ import (
 	"strings"
 )
 
-func NewMinecraftServer(addr string) (*MinecraftServer, error) {
+func NewMinecraftServer(addr string, timeout int) (*MinecraftServer, error) {
 	host, port, err := Lookup(addr)
 	if err != nil {
 		return nil, err
 	}
-	return &MinecraftServer{host, port}, nil
+	return &MinecraftServer{host, port, timeout}, nil
 }
 
 type MinecraftServer struct {
-	host string
-	port int
+	host    string
+	port    int
+	timeout int
 }
 
 func (m MinecraftServer) Query() (*QueryResponse, error) {
@@ -29,7 +30,7 @@ func (m MinecraftServer) Query() (*QueryResponse, error) {
 	if len(ips) > 0 {
 		host = ips[0]
 	}
-	connection, err := NewUDPSocketConnection(fmt.Sprintf("%s:%d", host, m.port))
+	connection, err := NewUDPSocketConnection(fmt.Sprintf("%s:%d", host, m.port), m.timeout)
 	if err != nil {
 		return nil, err
 	}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"net"
+	"time"
 	"unicode/utf8"
 )
 
@@ -289,18 +290,19 @@ func (c *Connection) WriteBuffer(buffer Connection) {
 
 // TCP
 
-func NewTCPSocketConnection(addr string) (*TCPSocketConnection, error) {
+func NewTCPSocketConnection(addr string, timeout int) (*TCPSocketConnection, error) {
 	sock, err := net.Dial("tcp", addr)
 	if err != nil {
 		return nil, err
 	}
-	return &TCPSocketConnection{NewConnection(), addr, sock}, nil
+	return &TCPSocketConnection{NewConnection(), addr, sock, timeout}, nil
 }
 
 type TCPSocketConnection struct {
-	conn Connection
-	addr string
-	sock net.Conn
+	conn    Connection
+	addr    string
+	sock    net.Conn
+	timeout int
 }
 
 //TODO: Implement timeout
@@ -308,6 +310,7 @@ func (t *TCPSocketConnection) Read(length int) ([]byte, error) {
 	var result []byte
 	for len(result) < length {
 		chunk := make([]byte, length-len(result))
+		t.sock.SetDeadline(time.Now().Add(time.Duration(t.timeout) * time.Millisecond))
 		_, err := t.sock.Read(chunk)
 		if err != nil {
 			return result, err
@@ -321,12 +324,13 @@ func (t *TCPSocketConnection) Read(length int) ([]byte, error) {
 }
 
 func (t *TCPSocketConnection) Write(data []byte) {
+	t.sock.SetDeadline(time.Now().Add(time.Duration(t.timeout) * time.Millisecond))
 	t.sock.Write(data)
 }
 
 // UDP
 
-func NewUDPSocketConnection(addr string) (*UDPSocketConnection, error) {
+func NewUDPSocketConnection(addr string, timeout int) (*UDPSocketConnection, error) {
 	UDPAddr, err := net.ResolveUDPAddr("udp", addr)
 	if err != nil {
 		return nil, err
@@ -336,21 +340,24 @@ func NewUDPSocketConnection(addr string) (*UDPSocketConnection, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &UDPSocketConnection{NewConnection(), addr, *sock}, nil
+	return &UDPSocketConnection{NewConnection(), addr, *sock, timeout}, nil
 }
 
 type UDPSocketConnection struct {
-	conn Connection
-	addr string
-	sock net.UDPConn
+	conn    Connection
+	addr    string
+	sock    net.UDPConn
+	timeout int
 }
 
 //TODO: Implement timeout with UDPConn.SetDeadline()
 func (u *UDPSocketConnection) Read(length int) ([]byte, error) {
+	fmt.Printf("UDP read with timeout %d\n", u.timeout)
 	result := make([]byte, 65535)
 	i := 0
 	var err error
 	for i == 0 {
+		u.sock.SetDeadline(time.Now().Add(time.Duration(u.timeout) * time.Millisecond))
 		i, _, err = u.sock.ReadFromUDP(result)
 		if err != nil {
 			return []byte{}, err
@@ -360,6 +367,7 @@ func (u *UDPSocketConnection) Read(length int) ([]byte, error) {
 }
 
 func (u *UDPSocketConnection) Write(data []byte) {
+	u.sock.SetDeadline(time.Now().Add(time.Duration(u.timeout) * time.Millisecond))
 	u.sock.Write(data)
 }
 
