@@ -12,10 +12,12 @@ import (
 
 // Connection buffer
 
+//NewConnection creates a new connection struct
 func NewConnection() Connection {
 	return Connection{[]byte{}, []byte{}}
 }
 
+//Connection is the struct over which data sent to the MineCraft server are processed
 type Connection struct {
 	sent     []byte
 	received []byte
